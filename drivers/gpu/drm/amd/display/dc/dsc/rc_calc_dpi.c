@@ -22,6 +22,8 @@
  * Authors: AMD
  *
  */
+#include <linux/errno.h>
+
 #include <drm/display/drm_dsc_helper.h>
 #include "dscc_types.h"
 #include "rc_calc.h"
@@ -100,18 +102,28 @@ int dscc_compute_dsc_parameters(const struct drm_dsc_config *pps,
 		struct dsc_parameters *dsc_params)
 {
 	int              ret;
+	int              initial_scale_den;
 	struct drm_dsc_config   dsc_cfg;
 
 	dsc_params->pps = *pps;
+	initial_scale_den = rc->rc_model_size - rc->initial_fullness_offset;
+	if (rc->rc_model_size <= 0 || initial_scale_den <= 0)
+		return -EINVAL;
+
 	dsc_params->pps.initial_scale_value = (u8)(8 * rc->rc_model_size /
-			(rc->rc_model_size - rc->initial_fullness_offset));
+			initial_scale_den);
 
 	copy_pps_fields(&dsc_cfg, &dsc_params->pps);
 	copy_rc_to_cfg(&dsc_cfg, rc);
 
 	dsc_cfg.mux_word_size = dsc_params->pps.bits_per_component <= 10 ? 48 : 64;
+	if (!dsc_cfg.slice_width || !dsc_cfg.slice_height || !dsc_cfg.bits_per_pixel)
+		return -EINVAL;
 
 	ret = drm_dsc_compute_rc_parameters(&dsc_cfg);
+	if (ret)
+		return ret;
+
 	dsc_params->bytes_per_pixel =
 			(uint32_t)(div_u64(((uint64_t)dsc_cfg.slice_chunk_size * 0x10000000 + (dsc_cfg.slice_width - 1)),
 							(uint32_t)dsc_cfg.slice_width));  /* Round-up */
@@ -120,4 +132,3 @@ int dscc_compute_dsc_parameters(const struct drm_dsc_config *pps,
 	dsc_params->rc_buffer_model_size = dsc_cfg.rc_bits;
 	return ret;
 }
-
